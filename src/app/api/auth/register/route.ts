@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import { db } from "@/lib/db"
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const { name, email, password } = await request.json()
+    const body = await request.json()
+    const { name, email, password } = body
 
     if (!name || !email || !password) {
       return NextResponse.json(
@@ -20,7 +21,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if user already exists
     const existingUser = await db.user.findUnique({
       where: { email }
     })
@@ -32,10 +32,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 12)
+    const hashedPassword = await bcrypt.hash(password, 10)
 
-    // Create user
     const user = await db.user.create({
       data: {
         name,
@@ -51,11 +49,11 @@ export async function POST(request: NextRequest) {
         name: user.name,
         email: user.email
       }
-    })
-  } catch (error) {
+    }, { status: 201 })
+  } catch (error: any) {
     console.error("Registration error:", error)
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: error?.message || "Internal server error" },
       { status: 500 }
     )
   }

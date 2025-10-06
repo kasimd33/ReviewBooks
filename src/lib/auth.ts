@@ -1,12 +1,14 @@
-import NextAuth from "next-auth"
+import { AuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
 import CredentialsProvider from "next-auth/providers/credentials"
-import { PrismaAdapter } from "@next-auth/prisma-adapter"
 import { db } from "./db"
 import bcrypt from "bcryptjs"
 
-export const authOptions = {
-  adapter: PrismaAdapter(db),
+export const authOptions: AuthOptions = {
+  secret: process.env.NEXTAUTH_SECRET,
+  session: {
+    strategy: "jwt" as const,
+  },
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || "1234567890-abcdefghijklmnopqrstuvwxyz123456.apps.googleusercontent.com",
@@ -59,60 +61,45 @@ export const authOptions = {
     })
   ],
   callbacks: {
-    async session({ session, user }) {
-      if (session?.user && user) {
-        session.user.id = user.id
-      }
-      return session
-    },
-    async signIn({ user, account, profile, email }) {
+    async signIn({ user, account }) {
       if (account?.provider === "google") {
-        // Check if user exists with this email
-        const existingUser = await db.user.findUnique({
-          where: { email: user.email! }
-        })
-        
-        if (existingUser) {
-          // Link the Google account to existing user
-          await db.account.upsert({
-            where: {
-              provider_providerAccountId: {
-                provider: account.provider,
-                providerAccountId: account.providerAccountId
-              }
-            },
-            create: {
-              userId: existingUser.id,
-              type: account.type,
-              provider: account.provider,
-              providerAccountId: account.providerAccountId,
-              access_token: account.access_token,
-              refresh_token: account.refresh_token,
-              expires_at: account.expires_at,
-              token_type: account.token_type,
-              scope: account.scope,
-              id_token: account.id_token
-            },
-            update: {
-              access_token: account.access_token,
-              refresh_token: account.refresh_token,
-              expires_at: account.expires_at,
-              id_token: account.id_token
-            }
+        try {
+          const existingUser = await db.user.findUnique({
+            where: { email: user.email! }
           })
+          
+          if (!existingUser) {
+            await db.user.create({
+              data: {
+                email: user.email!,
+                name: user.name,
+                image: user.image,
+              }
+            })
+          }
+        } catch (error) {
+          console.error("Google sign in error:", error)
+          return false
         }
       }
       return true
     },
-    async redirect({ url, baseUrl }) {
-      if (url.startsWith("/")) return `${baseUrl}${url}`
-      else if (new URL(url).origin === baseUrl) return url
-      return baseUrl
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id
+        token.email = user.email
+      }
+      return token
+    },
+    async session({ session, token }) {
+      if (token && session.user) {
+        session.user.id = token.id as string
+        session.user.email = token.email as string
+      }
+      return session
     },
   },
   pages: {
     signIn: "/auth/signin",
   },
 }
-
-export default NextAuth(authOptions)
