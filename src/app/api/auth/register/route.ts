@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
-import { db } from "@/lib/db"
+import { getDb } from "@/lib/db"
 
 export async function POST(request: Request) {
   try {
@@ -21,9 +21,8 @@ export async function POST(request: Request) {
       )
     }
 
-    const existingUser = await db.user.findUnique({
-      where: { email }
-    })
+    const db = await getDb()
+    const existingUser = await db.collection('users').findOne({ email })
 
     if (existingUser) {
       return NextResponse.json(
@@ -34,20 +33,20 @@ export async function POST(request: Request) {
 
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    const user = await db.user.create({
-      data: {
-        name,
-        email,
-        password: hashedPassword
-      }
+    const result = await db.collection('users').insertOne({
+      name,
+      email,
+      password: hashedPassword,
+      createdAt: new Date(),
+      updatedAt: new Date()
     })
 
     return NextResponse.json({
       message: "User created successfully",
       user: {
-        id: user.id,
-        name: user.name,
-        email: user.email
+        id: result.insertedId.toString(),
+        name,
+        email
       }
     }, { status: 201 })
   } catch (error: any) {

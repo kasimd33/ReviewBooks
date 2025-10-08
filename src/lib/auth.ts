@@ -1,7 +1,7 @@
 import { AuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
 import CredentialsProvider from "next-auth/providers/credentials"
-import { db } from "./db"
+import { getDb } from "./db"
 import bcrypt from "bcryptjs"
 
 export const authOptions: AuthOptions = {
@@ -33,10 +33,9 @@ export const authOptions: AuthOptions = {
           return null
         }
 
-        const user = await db.user.findUnique({
-          where: {
-            email: credentials.email
-          }
+        const db = await getDb()
+        const user = await db.collection('users').findOne({
+          email: credentials.email
         })
 
         if (!user || !user.password) {
@@ -53,7 +52,7 @@ export const authOptions: AuthOptions = {
         }
 
         return {
-          id: user.id,
+          id: user._id.toString(),
           email: user.email,
           name: user.name,
         }
@@ -64,17 +63,18 @@ export const authOptions: AuthOptions = {
     async signIn({ user, account }) {
       if (account?.provider === "google") {
         try {
-          const existingUser = await db.user.findUnique({
-            where: { email: user.email! }
+          const db = await getDb()
+          const existingUser = await db.collection('users').findOne({
+            email: user.email!
           })
           
           if (!existingUser) {
-            await db.user.create({
-              data: {
-                email: user.email!,
-                name: user.name,
-                image: user.image,
-              }
+            await db.collection('users').insertOne({
+              email: user.email!,
+              name: user.name,
+              image: user.image,
+              createdAt: new Date(),
+              updatedAt: new Date()
             })
           }
         } catch (error) {

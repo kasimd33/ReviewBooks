@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { db } from "@/lib/db"
+import { getDb } from "@/lib/db"
+import { ObjectId } from "mongodb"
 
 export async function PUT(
   request: NextRequest,
@@ -26,10 +27,8 @@ export async function PUT(
       )
     }
 
-    // Check if review exists and user owns it
-    const existingReview = await db.review.findUnique({
-      where: { id: params.id },
-    })
+    const db = await getDb()
+    const existingReview = await db.collection('reviews').findOne({ _id: new ObjectId(params.id) })
 
     if (!existingReview) {
       return NextResponse.json(
@@ -45,32 +44,41 @@ export async function PUT(
       )
     }
 
-    const review = await db.review.update({
-      where: { id: params.id },
-      data: {
-        rating,
-        reviewText,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        book: {
-          select: {
-            id: true,
-            title: true,
-            author: true,
-          },
-        },
-      },
-    })
+    await db.collection('reviews').updateOne(
+      { _id: new ObjectId(params.id) },
+      { 
+        $set: {
+          rating,
+          reviewText,
+          updatedAt: new Date()
+        }
+      }
+    )
+
+    const review = await db.collection('reviews').findOne({ _id: new ObjectId(params.id) })
+    
+    let user = null
+    try {
+      user = await db.collection('users').findOne({ _id: new ObjectId(session.user.id) })
+    } catch {
+      user = await db.collection('users').findOne({ _id: session.user.id as any })
+    }
+    
+    let book = null
+    try {
+      book = await db.collection('books').findOne({ _id: new ObjectId(review?.bookId) })
+    } catch {
+      book = await db.collection('books').findOne({ _id: review?.bookId as any })
+    }
 
     return NextResponse.json({
       message: "Review updated successfully",
-      review,
+      review: {
+        ...review,
+        id: review?._id.toString(),
+        user: user ? { id: user._id.toString(), name: user.name } : null,
+        book: book ? { id: book._id.toString(), title: book.title, author: book.author } : null
+      },
     })
   } catch (error) {
     console.error("Update review error:", error)
@@ -95,10 +103,8 @@ export async function DELETE(
       )
     }
 
-    // Check if review exists and user owns it
-    const existingReview = await db.review.findUnique({
-      where: { id: params.id },
-    })
+    const db = await getDb()
+    const existingReview = await db.collection('reviews').findOne({ _id: new ObjectId(params.id) })
 
     if (!existingReview) {
       return NextResponse.json(
@@ -114,9 +120,7 @@ export async function DELETE(
       )
     }
 
-    await db.review.delete({
-      where: { id: params.id },
-    })
+    await db.collection('reviews').deleteOne({ _id: new ObjectId(params.id) })
 
     return NextResponse.json({
       message: "Review deleted successfully",

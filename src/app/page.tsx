@@ -491,7 +491,7 @@ export default function Home() {
                           <div className="flex items-center gap-1">
                             <User className="h-4 w-4 text-gray-700" />
                             <span className="truncate max-w-20">
-                              {book.user.name}
+                              {book.user?.name || "Unknown"}
                             </span>
                           </div>
                         </div>

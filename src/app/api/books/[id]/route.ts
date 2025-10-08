@@ -1,38 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { db } from "@/lib/db"
+import { getDb } from "@/lib/db"
+import { ObjectId } from "mongodb"
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const book = await db.book.findUnique({
-      where: { id: params.id },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        reviews: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-        },
-      },
-    })
+    const db = await getDb()
+    const book = await db.collection('books').findOne({ _id: new ObjectId(params.id) })
 
     if (!book) {
       return NextResponse.json(
@@ -41,15 +19,40 @@ export async function GET(
       )
     }
 
-    // Calculate average rating
-    const avgRating = book.reviews.length > 0
-      ? book.reviews.reduce((sum, review) => sum + review.rating, 0) / book.reviews.length
+    let user = null
+    try {
+      user = await db.collection('users').findOne({ _id: new ObjectId(book.addedBy) })
+    } catch {
+      user = await db.collection('users').findOne({ _id: book.addedBy as any })
+    }
+    
+    const reviews = await db.collection('reviews').find({ bookId: params.id }).sort({ createdAt: -1 }).toArray()
+
+    const reviewsWithUsers = await Promise.all(reviews.map(async (review) => {
+      let reviewUser = null
+      try {
+        reviewUser = await db.collection('users').findOne({ _id: new ObjectId(review.userId) })
+      } catch {
+        reviewUser = await db.collection('users').findOne({ _id: review.userId as any })
+      }
+      return {
+        ...review,
+        id: review._id.toString(),
+        user: reviewUser ? { id: reviewUser._id.toString(), name: reviewUser.name } : null
+      }
+    }))
+
+    const avgRating = reviews.length > 0
+      ? reviews.reduce((sum, review: any) => sum + review.rating, 0) / reviews.length
       : 0
 
     return NextResponse.json({
       ...book,
+      id: book._id.toString(),
+      user: user ? { id: user._id.toString(), name: user.name, email: user.email } : null,
+      reviews: reviewsWithUsers,
       avgRating: Math.round(avgRating * 10) / 10,
-      reviewCount: book.reviews.length,
+      reviewCount: reviews.length,
     })
   } catch (error) {
     console.error("Get book error:", error)
@@ -76,10 +79,8 @@ export async function PUT(
 
     const { title, author, description, genre, publishedYear } = await request.json()
 
-    // Check if book exists and user owns it
-    const existingBook = await db.book.findUnique({
-      where: { id: params.id },
-    })
+    const db = await getDb()
+    const existingBook = await db.collection('books').findOne({ _id: new ObjectId(params.id) })
 
     if (!existingBook) {
       return NextResponse.json(
@@ -95,29 +96,36 @@ export async function PUT(
       )
     }
 
-    const book = await db.book.update({
-      where: { id: params.id },
-      data: {
-        title,
-        author,
-        description,
-        genre,
-        publishedYear: publishedYear ? parseInt(publishedYear) : null,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-    })
+    await db.collection('books').updateOne(
+      { _id: new ObjectId(params.id) },
+      { 
+        $set: {
+          title,
+          author,
+          description,
+          genre,
+          publishedYear: publishedYear ? parseInt(publishedYear) : null,
+          updatedAt: new Date()
+        }
+      }
+    )
+
+    const book = await db.collection('books').findOne({ _id: new ObjectId(params.id) })
+    
+    let user = null
+    try {
+      user = await db.collection('users').findOne({ _id: new ObjectId(session.user.id) })
+    } catch {
+      user = await db.collection('users').findOne({ _id: session.user.id as any })
+    }
 
     return NextResponse.json({
       message: "Book updated successfully",
-      book,
+      book: {
+        ...book,
+        id: book?._id.toString(),
+        user: user ? { id: user._id.toString(), name: user.name, email: user.email } : null
+      },
     })
   } catch (error) {
     console.error("Update book error:", error)
@@ -142,10 +150,8 @@ export async function DELETE(
       )
     }
 
-    // Check if book exists and user owns it
-    const existingBook = await db.book.findUnique({
-      where: { id: params.id },
-    })
+    const db = await getDb()
+    const existingBook = await db.collection('books').findOne({ _id: new ObjectId(params.id) })
 
     if (!existingBook) {
       return NextResponse.json(
@@ -161,9 +167,8 @@ export async function DELETE(
       )
     }
 
-    await db.book.delete({
-      where: { id: params.id },
-    })
+    await db.collection('books').deleteOne({ _id: new ObjectId(params.id) })
+    await db.collection('reviews').deleteMany({ bookId: params.id })
 
     return NextResponse.json({
       message: "Book deleted successfully",

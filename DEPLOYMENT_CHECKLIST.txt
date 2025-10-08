@@ -1,0 +1,77 @@
+═══════════════════════════════════════════════════════════
+  📋 VERCEL DEPLOYMENT CHECKLIST
+═══════════════════════════════════════════════════════════
+
+STEP 1: PUSH TO GITHUB
+═══════════════════════════════════════════════════════════
+[ ] Open terminal in d:\pro
+[ ] Run: git init
+[ ] Run: git add .
+[ ] Run: git commit -m "Ready for Vercel deployment"
+[ ] Go to: https://github.com/new
+[ ] Create repository: book-review-app
+[ ] Copy the git commands GitHub shows
+[ ] Run those commands in terminal
+[ ] Verify code appears on GitHub
+
+STEP 2: MONGODB ATLAS
+═══════════════════════════════════════════════════════════
+[ ] Go to: https://www.mongodb.com/cloud/atlas/register
+[ ] Sign up (FREE)
+[ ] Create M0 FREE cluster
+[ ] Create database user: bookreview
+[ ] Save the auto-generated password: ___________________
+[ ] Add IP: 0.0.0.0/0 (for Vercel access)
+[ ] Get connection string
+[ ] Replace <password> with your password
+[ ] Add /bookreview before the ?
+[ ] Final connection string saved: ___________________
+
+STEP 3: DEPLOY TO VERCEL
+═══════════════════════════════════════════════════════════
+[ ] Go to: https://vercel.com/signup
+[ ] Sign up with GitHub
+[ ] Import book-review-app repository
+[ ] Add environment variable: MONGODB_URL
+[ ] Add environment variable: NEXTAUTH_SECRET
+[ ] Add environment variable: NEXTAUTH_URL (use https://TEMP)
+[ ] Add environment variable: NEXT_PUBLIC_GOOGLE_ENABLED
+[ ] Add environment variable: GOOGLE_CLIENT_ID
+[ ] Add environment variable: GOOGLE_CLIENT_SECRET
+[ ] Click Deploy
+[ ] Wait for deployment
+[ ] Copy Vercel URL: ___________________
+
+STEP 4: UPDATE NEXTAUTH_URL
+═══════════════════════════════════════════════════════════
+[ ] Go to Vercel project → Settings → Environment Variables
+[ ] Edit NEXTAUTH_URL
+[ ] Change to your Vercel URL
+[ ] Save
+[ ] Go to Deployments tab
+[ ] Redeploy latest deployment
+
+STEP 5: UPDATE GOOGLE OAUTH
+═══════════════════════════════════════════════════════════
+[ ] Go to: https://console.cloud.google.com
+[ ] APIs & Services → Credentials
+[ ] Click your OAuth 2.0 Client ID
+[ ] Add Authorized JavaScript origin: [Your Vercel URL]
+[ ] Add Authorized redirect URI: [Your Vercel URL]/api/auth/callback/google
+[ ] Save
+
+STEP 6: TEST
+═══════════════════════════════════════════════════════════
+[ ] Visit your Vercel URL
+[ ] Test Google Sign-In
+[ ] Add a book
+[ ] Add a review
+[ ] Everything works!
+
+═══════════════════════════════════════════════════════════
+🎉 DEPLOYMENT COMPLETE!
+═══════════════════════════════════════════════════════════
+
+Your live URL: ___________________
+
+Future updates: Just git push and Vercel auto-deploys!

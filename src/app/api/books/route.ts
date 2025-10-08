@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { db } from "@/lib/db"
+import { getDb } from "@/lib/db"
+import { ObjectId } from "mongodb"
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,64 +16,55 @@ export async function GET(request: NextRequest) {
     const sortOrder = searchParams.get("sortOrder") || "desc"
 
     const skip = (page - 1) * limit
+    const db = await getDb()
 
-    // Build where clause for filtering
-    const where: any = {}
+    const filter: any = {}
     
     if (search) {
-      where.OR = [
-        { title: { contains: search, mode: "insensitive" } },
-        { author: { contains: search, mode: "insensitive" } },
+      filter.$or = [
+        { title: { $regex: search, $options: "i" } },
+        { author: { $regex: search, $options: "i" } },
       ]
     }
 
     if (genre && genre !== "all") {
-      where.genre = { contains: genre, mode: "insensitive" }
+      filter.genre = { $regex: genre, $options: "i" }
     }
 
-    // Build orderBy clause for sorting
-    const orderBy: any = {}
-    orderBy[sortBy] = sortOrder
+    const sort: any = {}
+    sort[sortBy] = sortOrder === "desc" ? -1 : 1
 
     const [books, total] = await Promise.all([
-      db.book.findMany({
-        where,
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-          reviews: {
-            select: {
-              rating: true,
-            },
-          },
-        },
-        orderBy,
-        skip,
-        take: limit,
-      }),
-      db.book.count({ where }),
+      db.collection('books').find(filter).sort(sort).skip(skip).limit(limit).toArray(),
+      db.collection('books').countDocuments(filter),
     ])
 
-    // Calculate average rating for each book
-    const booksWithAvgRating = books.map((book) => {
-      const avgRating = book.reviews.length > 0
-        ? book.reviews.reduce((sum, review) => sum + review.rating, 0) / book.reviews.length
+    const booksWithDetails = await Promise.all(books.map(async (book) => {
+      const reviews = await db.collection('reviews').find({ bookId: book._id.toString() }).toArray()
+      
+      // Try to find user by ObjectId first, then by string
+      let user = null
+      try {
+        user = await db.collection('users').findOne({ _id: new ObjectId(book.addedBy) })
+      } catch {
+        user = await db.collection('users').findOne({ _id: book.addedBy as any })
+      }
+      
+      const avgRating = reviews.length > 0
+        ? reviews.reduce((sum, review: any) => sum + review.rating, 0) / reviews.length
         : 0
 
       return {
         ...book,
-        avgRating: Math.round(avgRating * 10) / 10, // Round to 1 decimal place
-        reviewCount: book.reviews.length,
+        id: book._id.toString(),
+        user: user ? { id: user._id.toString(), name: user.name, email: user.email } : null,
+        avgRating: Math.round(avgRating * 10) / 10,
+        reviewCount: reviews.length,
       }
-    })
+    }))
 
     return NextResponse.json({
-      books: booksWithAvgRating,
+      books: booksWithDetails,
       pagination: {
         page,
         limit,
@@ -109,29 +101,40 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const book = await db.book.create({
-      data: {
-        title,
-        author,
-        description,
-        genre,
-        publishedYear: publishedYear ? parseInt(publishedYear) : null,
-        addedBy: session.user.id,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
+    const db = await getDb()
+    
+    // Find user first to get their info
+    let user = null
+    try {
+      user = await db.collection('users').findOne({ _id: new ObjectId(session.user.id) })
+    } catch {
+      // If ObjectId conversion fails, try finding by string ID
+      user = await db.collection('users').findOne({ _id: session.user.id as any })
+    }
+    
+    const result = await db.collection('books').insertOne({
+      title,
+      author,
+      description,
+      genre,
+      publishedYear: publishedYear ? parseInt(publishedYear) : null,
+      addedBy: session.user.id,
+      createdAt: new Date(),
+      updatedAt: new Date()
     })
 
     return NextResponse.json({
       message: "Book created successfully",
-      book,
+      book: {
+        id: result.insertedId.toString(),
+        title,
+        author,
+        description,
+        genre,
+        publishedYear,
+        addedBy: session.user.id,
+        user: user ? { id: user._id.toString(), name: user.name, email: user.email } : null
+      },
     })
   } catch (error) {
     console.error("Create book error:", error)

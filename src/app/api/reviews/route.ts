@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { db } from "@/lib/db"
+import { getDb } from "@/lib/db"
+import { ObjectId } from "mongodb"
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,37 +10,41 @@ export async function GET(request: NextRequest) {
     const bookId = searchParams.get("bookId")
     const userId = searchParams.get("userId")
 
-    const where: any = {}
+    const filter: any = {}
     
     if (bookId) {
-      where.bookId = bookId
+      filter.bookId = bookId
     }
     
     if (userId) {
-      where.userId = userId
+      filter.userId = userId
     }
 
-    const reviews = await db.review.findMany({
-      where,
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        book: {
-          select: {
-            id: true,
-            title: true,
-            author: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    })
+    const db = await getDb()
+    const reviewsData = await db.collection('reviews').find(filter).sort({ createdAt: -1 }).toArray()
+
+    const reviews = await Promise.all(reviewsData.map(async (review) => {
+      let user = null
+      try {
+        user = await db.collection('users').findOne({ _id: new ObjectId(review.userId) })
+      } catch {
+        user = await db.collection('users').findOne({ _id: review.userId as any })
+      }
+      
+      let book = null
+      try {
+        book = await db.collection('books').findOne({ _id: new ObjectId(review.bookId) })
+      } catch {
+        book = await db.collection('books').findOne({ _id: review.bookId as any })
+      }
+      
+      return {
+        ...review,
+        id: review._id.toString(),
+        user: user ? { id: user._id.toString(), name: user.name } : null,
+        book: book ? { id: book._id.toString(), title: book.title, author: book.author } : null
+      }
+    }))
 
     return NextResponse.json({ reviews })
   } catch (error) {
@@ -71,10 +76,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if book exists
-    const book = await db.book.findUnique({
-      where: { id: bookId }
-    })
+    const db = await getDb()
+    const book = await db.collection('books').findOne({ _id: new ObjectId(bookId) })
 
     if (!book) {
       return NextResponse.json(
@@ -83,14 +86,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if user already reviewed this book
-    const existingReview = await db.review.findUnique({
-      where: {
-        bookId_userId: {
-          bookId,
-          userId: session.user.id
-        }
-      }
+    const existingReview = await db.collection('reviews').findOne({
+      bookId,
+      userId: session.user.id
     })
 
     if (existingReview) {
@@ -100,33 +98,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const review = await db.review.create({
-      data: {
+    const result = await db.collection('reviews').insertOne({
+      bookId,
+      userId: session.user.id,
+      rating,
+      reviewText,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+
+    let user = null
+    try {
+      user = await db.collection('users').findOne({ _id: new ObjectId(session.user.id) })
+    } catch {
+      user = await db.collection('users').findOne({ _id: session.user.id as any })
+    }
+
+    return NextResponse.json({
+      message: "Review created successfully",
+      review: {
+        id: result.insertedId.toString(),
         bookId,
         userId: session.user.id,
         rating,
         reviewText,
+        user: user ? { id: user._id.toString(), name: user.name } : null,
+        book: { id: book._id.toString(), title: book.title, author: book.author }
       },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        book: {
-          select: {
-            id: true,
-            title: true,
-            author: true,
-          },
-        },
-      },
-    })
-
-    return NextResponse.json({
-      message: "Review created successfully",
-      review,
     })
   } catch (error) {
     console.error("Create review error:", error)
